@@ -247,100 +247,96 @@ fn extract_relationships(data: &HashMap<String, serde_json::Value>) -> HashMap<S
     relationships
 }
 
+/// Infer entity type from a parent folder name.
+fn infer_type_from_folder(folder: &str) -> String {
+    match folder {
+        "person" => "Person",
+        "project" => "Project",
+        "procedure" => "Procedure",
+        "responsibility" => "Responsibility",
+        "event" => "Event",
+        "topic" => "Topic",
+        "experiment" => "Experiment",
+        "note" => "Note",
+        "quarter" => "Quarter",
+        "measure" => "Measure",
+        "target" => "Target",
+        "journal" => "Journal",
+        "month" => "Month",
+        "essay" => "Essay",
+        "evergreen" => "Evergreen",
+        _ => return capitalize_first(folder),
+    }.to_string()
+}
+
+/// Resolve `is_a` from frontmatter, falling back to parent folder inference.
+fn resolve_is_a(fm_is_a: Option<StringOrList>, path: &Path) -> Option<String> {
+    fm_is_a
+        .and_then(|a| a.into_vec().into_iter().next())
+        .or_else(|| {
+            path.parent()
+                .and_then(|p| p.file_name())
+                .map(|f| infer_type_from_folder(&f.to_string_lossy()))
+        })
+}
+
+/// Parse created_at from frontmatter (prefer "Created at" over "Created time").
+fn parse_created_at(fm: &Frontmatter) -> Option<u64> {
+    fm.created_at.as_ref().and_then(|s| parse_iso_date(s))
+        .or_else(|| fm.created_time.as_ref().and_then(|s| parse_iso_date(s)))
+}
+
+/// Extract frontmatter and relationships from parsed gray_matter data.
+fn extract_fm_and_rels(data: Option<gray_matter::Pod>) -> (Frontmatter, HashMap<String, Vec<String>>) {
+    let hash = match data {
+        Some(gray_matter::Pod::Hash(map)) => map,
+        _ => return (Frontmatter::default(), HashMap::new()),
+    };
+    let json_map: HashMap<String, serde_json::Value> = hash
+        .into_iter()
+        .map(|(k, v)| (k, pod_to_json(v)))
+        .collect();
+    (parse_frontmatter(&json_map), extract_relationships(&json_map))
+}
+
+/// Read file metadata (modified_at timestamp, file size).
+fn read_file_metadata(path: &Path) -> Result<(Option<u64>, u64), String> {
+    let metadata = fs::metadata(path)
+        .map_err(|e| format!("Failed to stat {}: {}", path.display(), e))?;
+    let modified_at = metadata.modified().ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs());
+    Ok((modified_at, metadata.len()))
+}
+
 /// Parse a single markdown file into a VaultEntry.
 pub fn parse_md_file(path: &Path) -> Result<VaultEntry, String> {
-    let content = fs::read_to_string(path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-
-    let filename = path
-        .file_name()
+    let content = fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+    let filename = path.file_name()
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_default();
 
     let matter = Matter::<YAML>::new();
     let parsed = matter.parse(&content);
-
-    let (frontmatter, relationships): (Frontmatter, HashMap<String, Vec<String>>) = if let Some(data) = parsed.data {
-        match data {
-            gray_matter::Pod::Hash(map) => {
-                // Convert Pod HashMap to serde_json HashMap
-                let json_map: HashMap<String, serde_json::Value> = map
-                    .into_iter()
-                    .map(|(k, v)| (k, pod_to_json(v)))
-                    .collect();
-                let fm = parse_frontmatter(&json_map);
-                let rels = extract_relationships(&json_map);
-                (fm, rels)
-            }
-            _ => (Frontmatter::default(), HashMap::new()),
-        }
-    } else {
-        (Frontmatter::default(), HashMap::new())
-    };
+    let (frontmatter, relationships) = extract_fm_and_rels(parsed.data);
 
     let title = extract_title(&parsed.content, &filename);
     let snippet = extract_snippet(&content);
-
-    let metadata = fs::metadata(path).map_err(|e| format!("Failed to stat {}: {}", path.display(), e))?;
-    let modified_at = metadata
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_secs());
-    let file_size = metadata.len();
-
-    // Extract is_a from frontmatter, or infer from parent folder name
-    let is_a = frontmatter.is_a
-        .map(|a| a.into_vec().into_iter().next())
-        .flatten()
-        .or_else(|| {
-            path.parent()
-                .and_then(|p| p.file_name())
-                .map(|f| {
-                    let folder = f.to_string_lossy().to_string();
-                    // Map folder names to entity types
-                    match folder.as_str() {
-                        "person" => "Person".to_string(),
-                        "project" => "Project".to_string(),
-                        "procedure" => "Procedure".to_string(),
-                        "responsibility" => "Responsibility".to_string(),
-                        "event" => "Event".to_string(),
-                        "topic" => "Topic".to_string(),
-                        "experiment" => "Experiment".to_string(),
-                        "note" => "Note".to_string(),
-                        "quarter" => "Quarter".to_string(),
-                        "measure" => "Measure".to_string(),
-                        "target" => "Target".to_string(),
-                        "journal" => "Journal".to_string(),
-                        "month" => "Month".to_string(),
-                        "essay" => "Essay".to_string(),
-                        "evergreen" => "Evergreen".to_string(),
-                        _ => capitalize_first(&folder),
-                    }
-                })
-        });
-
-    // Parse created_at from frontmatter (prefer "Created at" over "Created time")
-    let created_at = frontmatter.created_at
-        .as_ref()
-        .and_then(|s| parse_iso_date(s))
-        .or_else(|| frontmatter.created_time.as_ref().and_then(|s| parse_iso_date(s)));
+    let (modified_at, file_size) = read_file_metadata(path)?;
+    let created_at = parse_created_at(&frontmatter);
+    let is_a = resolve_is_a(frontmatter.is_a, path);
 
     Ok(VaultEntry {
         path: path.to_string_lossy().to_string(),
-        filename,
-        title,
-        is_a,
+        filename, title, is_a, snippet, relationships,
         aliases: frontmatter.aliases.map(|a| a.into_vec()).unwrap_or_default(),
         belongs_to: frontmatter.belongs_to.map(|b| b.into_vec()).unwrap_or_default(),
         related_to: frontmatter.related_to.map(|r| r.into_vec()).unwrap_or_default(),
         status: frontmatter.status,
         owner: frontmatter.owner,
         cadence: frontmatter.cadence,
-        modified_at,
-        created_at,
-        file_size,
-        snippet,
-        relationships,
+        modified_at, created_at, file_size,
     })
 }
 
@@ -490,26 +486,36 @@ fn is_new_file_status(status: &str) -> bool {
     status == "??" || status.starts_with('A')
 }
 
+/// Extract .md file paths from git diff --name-only output.
+fn collect_md_paths_from_diff(stdout: &str) -> Vec<String> {
+    stdout.lines()
+        .filter(|line| !line.is_empty() && line.ends_with(".md"))
+        .map(|line| line.to_string())
+        .collect()
+}
+
+/// Extract .md file paths from git status --porcelain output.
+fn collect_md_paths_from_porcelain(stdout: &str) -> Vec<String> {
+    stdout.lines()
+        .filter_map(parse_porcelain_line)
+        .filter(|(_, path)| path.ends_with(".md"))
+        .map(|(_, path)| path)
+        .collect()
+}
+
 fn git_changed_files(vault_path: &str, from_hash: &str, to_hash: &str) -> Vec<String> {
-    let mut files = Vec::new();
+    let diff_arg = format!("{}..{}", from_hash, to_hash);
+    let mut files = run_git(vault_path, &["diff", &diff_arg, "--name-only"])
+        .map(|s| collect_md_paths_from_diff(&s))
+        .unwrap_or_default();
 
-    // Files changed between commits
-    if let Some(stdout) = run_git(vault_path, &["diff", &format!("{}..{}", from_hash, to_hash), "--name-only"]) {
-        for line in stdout.lines() {
-            if !line.is_empty() && line.ends_with(".md") {
-                files.push(line.to_string());
-            }
-        }
-    }
+    let uncommitted = run_git(vault_path, &["status", "--porcelain"])
+        .map(|s| collect_md_paths_from_porcelain(&s))
+        .unwrap_or_default();
 
-    // Uncommitted changes (modified + untracked)
-    if let Some(stdout) = run_git(vault_path, &["status", "--porcelain"]) {
-        for line in stdout.lines() {
-            if let Some((_, path)) = parse_porcelain_line(line) {
-                if path.ends_with(".md") && !files.contains(&path) {
-                    files.push(path);
-                }
-            }
+    for path in uncommitted {
+        if !files.contains(&path) {
+            files.push(path);
         }
     }
 
