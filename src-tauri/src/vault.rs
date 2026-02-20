@@ -547,6 +547,66 @@ fn write_cache(vault_path: &str, cache: &VaultCache) {
     }
 }
 
+/// Normalize an absolute path to a relative path for comparison with git output.
+fn to_relative_path(abs_path: &str, vault_path: &str) -> String {
+    let with_slash = format!("{}/", vault_path);
+    abs_path.strip_prefix(&with_slash)
+        .or_else(|| abs_path.strip_prefix(vault_path))
+        .unwrap_or(abs_path)
+        .to_string()
+}
+
+/// Parse .md files from a list of relative paths, skipping any that don't exist.
+fn parse_files_at(vault: &Path, rel_paths: &[String]) -> Vec<VaultEntry> {
+    rel_paths.iter()
+        .filter_map(|rel| {
+            let abs = vault.join(rel);
+            if abs.is_file() { parse_md_file(&abs).ok() } else { None }
+        })
+        .collect()
+}
+
+/// Sort entries by modified_at descending and write the cache.
+fn finalize_and_cache(vault_path: &str, mut entries: Vec<VaultEntry>, hash: String) -> Vec<VaultEntry> {
+    entries.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
+    write_cache(vault_path, &VaultCache { commit_hash: hash, entries: entries.clone() });
+    entries
+}
+
+/// Handle same-commit cache hit: add any uncommitted new files.
+fn update_same_commit(vault_path: &str, cache: VaultCache) -> Vec<VaultEntry> {
+    let vault = Path::new(vault_path);
+    let new_files = git_uncommitted_new_files(vault_path);
+    let mut entries = cache.entries;
+    let existing: std::collections::HashSet<String> = entries.iter()
+        .map(|e| to_relative_path(&e.path, vault_path))
+        .collect();
+
+    let new_entries = parse_files_at(vault, &new_files);
+    for entry in new_entries {
+        let rel = to_relative_path(&entry.path, vault_path);
+        if !existing.contains(&rel) {
+            entries.push(entry);
+        }
+    }
+
+    finalize_and_cache(vault_path, entries, cache.commit_hash)
+}
+
+/// Handle different-commit cache: incremental update via git diff.
+fn update_different_commit(vault_path: &str, cache: VaultCache, current_hash: String) -> Vec<VaultEntry> {
+    let vault = Path::new(vault_path);
+    let changed_files = git_changed_files(vault_path, &cache.commit_hash, &current_hash);
+    let changed_set: std::collections::HashSet<String> = changed_files.iter().cloned().collect();
+
+    let mut entries: Vec<VaultEntry> = cache.entries.into_iter()
+        .filter(|e| !changed_set.contains(&to_relative_path(&e.path, vault_path)))
+        .collect();
+    entries.extend(parse_files_at(vault, &changed_files));
+
+    finalize_and_cache(vault_path, entries, current_hash)
+}
+
 /// Scan vault with incremental caching via git.
 /// Falls back to full scan if cache is missing/corrupt or git is unavailable.
 pub fn scan_vault_cached(vault_path: &str) -> Result<Vec<VaultEntry>, String> {
@@ -557,88 +617,20 @@ pub fn scan_vault_cached(vault_path: &str) -> Result<Vec<VaultEntry>, String> {
 
     let current_hash = match git_head_hash(vault_path) {
         Some(h) => h,
-        None => {
-            // No git — full scan, no cache
-            return scan_vault(vault_path);
-        }
+        None => return scan_vault(vault_path),
     };
 
     if let Some(cache) = load_cache(vault_path) {
-        if cache.commit_hash == current_hash {
-            // Same commit — only check for uncommitted new files
-            let new_files = git_uncommitted_new_files(vault_path);
-            let mut entries = cache.entries;
-            let existing_paths: std::collections::HashSet<String> = entries.iter()
-                .map(|e| {
-                    // Normalize to relative path for comparison
-                    e.path.strip_prefix(&format!("{}/", vault_path))
-                        .or_else(|| e.path.strip_prefix(vault_path))
-                        .unwrap_or(&e.path)
-                        .to_string()
-                })
-                .collect();
-
-            for rel_path in new_files {
-                if !existing_paths.contains(&rel_path) {
-                    let abs_path = vault.join(&rel_path);
-                    if abs_path.is_file() {
-                        if let Ok(entry) = parse_md_file(&abs_path) {
-                            entries.push(entry);
-                        }
-                    }
-                }
-            }
-
-            entries.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
-            // Update cache with any new entries
-            write_cache(vault_path, &VaultCache {
-                commit_hash: current_hash,
-                entries: entries.clone(),
-            });
-            return Ok(entries);
-        }
-
-        // Different commit — incremental update
-        let changed_files = git_changed_files(vault_path, &cache.commit_hash, &current_hash);
-        let changed_set: std::collections::HashSet<String> = changed_files.iter().cloned().collect();
-
-        // Keep entries that haven't changed
-        let mut entries: Vec<VaultEntry> = cache.entries
-            .into_iter()
-            .filter(|e| {
-                let rel = e.path.strip_prefix(&format!("{}/", vault_path))
-                    .or_else(|| e.path.strip_prefix(vault_path))
-                    .unwrap_or(&e.path)
-                    .to_string();
-                !changed_set.contains(&rel)
-            })
-            .collect();
-
-        // Re-parse changed files (skip deleted ones)
-        for rel_path in &changed_files {
-            let abs_path = vault.join(rel_path);
-            if abs_path.is_file() {
-                if let Ok(entry) = parse_md_file(&abs_path) {
-                    entries.push(entry);
-                }
-            }
-        }
-
-        entries.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
-        write_cache(vault_path, &VaultCache {
-            commit_hash: current_hash,
-            entries: entries.clone(),
-        });
-        return Ok(entries);
+        return if cache.commit_hash == current_hash {
+            Ok(update_same_commit(vault_path, cache))
+        } else {
+            Ok(update_different_commit(vault_path, cache, current_hash))
+        };
     }
 
     // No cache — full scan and write cache
     let entries = scan_vault(vault_path)?;
-    write_cache(vault_path, &VaultCache {
-        commit_hash: current_hash,
-        entries: entries.clone(),
-    });
-    Ok(entries)
+    Ok(finalize_and_cache(vault_path, entries, current_hash))
 }
 
 // Re-export for external consumers
