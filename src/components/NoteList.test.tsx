@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
-import { NoteList } from './NoteList'
+import { NoteList, filterEntries } from './NoteList'
 import type { VaultEntry, SidebarSelection } from '../types'
 
 const allSelection: SidebarSelection = { kind: 'filter', filter: 'all' }
@@ -19,6 +19,8 @@ const mockEntries: VaultEntry[] = [
     owner: 'Luca',
     cadence: null,
     archived: false,
+    trashed: false,
+    trashedAt: null,
     modifiedAt: 1700000000,
     createdAt: null,
     fileSize: 1024,
@@ -41,6 +43,8 @@ const mockEntries: VaultEntry[] = [
     owner: null,
     cadence: null,
     archived: false,
+    trashed: false,
+    trashedAt: null,
     modifiedAt: 1700000000,
     createdAt: null,
     fileSize: 847,
@@ -64,6 +68,8 @@ const mockEntries: VaultEntry[] = [
     owner: null,
     cadence: null,
     archived: false,
+    trashed: false,
+    trashedAt: null,
     modifiedAt: 1700000000,
     createdAt: null,
     fileSize: 320,
@@ -84,6 +90,8 @@ const mockEntries: VaultEntry[] = [
     owner: null,
     cadence: null,
     archived: false,
+    trashed: false,
+    trashedAt: null,
     modifiedAt: 1700000000,
     createdAt: null,
     fileSize: 512,
@@ -104,6 +112,8 @@ const mockEntries: VaultEntry[] = [
     owner: null,
     cadence: null,
     archived: false,
+    trashed: false,
+    trashedAt: null,
     modifiedAt: 1700000000,
     createdAt: null,
     fileSize: 256,
@@ -245,5 +255,131 @@ describe('NoteList', () => {
     )
     // Snippet appears in the prominent card
     expect(screen.getByText('Build a personal knowledge management app.')).toBeInTheDocument()
+  })
+})
+
+// --- Trash feature tests ---
+
+const trashedEntry: VaultEntry = {
+  path: '/vault/note/old-draft.md',
+  filename: 'old-draft.md',
+  title: 'Old Draft Notes',
+  isA: 'Note',
+  aliases: [],
+  belongsTo: [],
+  relatedTo: [],
+  status: null,
+  owner: null,
+  cadence: null,
+  archived: false,
+  trashed: true,
+  trashedAt: Date.now() / 1000 - 86400 * 5,
+  modifiedAt: 1700000000,
+  createdAt: null,
+  fileSize: 280,
+  snippet: 'Some draft content that is no longer needed.',
+  relationships: {},
+  icon: null,
+  color: null,
+}
+
+const expiredTrashedEntry: VaultEntry = {
+  path: '/vault/note/deprecated-api.md',
+  filename: 'deprecated-api.md',
+  title: 'Deprecated API Notes',
+  isA: 'Note',
+  aliases: [],
+  belongsTo: [],
+  relatedTo: [],
+  status: null,
+  owner: null,
+  cadence: null,
+  archived: false,
+  trashed: true,
+  trashedAt: Date.now() / 1000 - 86400 * 35,
+  modifiedAt: 1700000000,
+  createdAt: null,
+  fileSize: 190,
+  snippet: 'Old API docs replaced by v2.',
+  relationships: {},
+  icon: null,
+  color: null,
+}
+
+const entriesWithTrashed = [...mockEntries, trashedEntry, expiredTrashedEntry]
+
+describe('filterEntries — trash', () => {
+  it('excludes trashed entries from "all" filter', () => {
+    const result = filterEntries(entriesWithTrashed, { kind: 'filter', filter: 'all' })
+    expect(result.find((e) => e.title === 'Old Draft Notes')).toBeUndefined()
+    expect(result.find((e) => e.title === 'Build Laputa App')).toBeDefined()
+  })
+
+  it('excludes trashed entries from section group', () => {
+    const result = filterEntries(entriesWithTrashed, { kind: 'sectionGroup', type: 'Note' })
+    expect(result.find((e) => e.title === 'Old Draft Notes')).toBeUndefined()
+  })
+
+  it('trash filter returns only trashed entries', () => {
+    const result = filterEntries(entriesWithTrashed, { kind: 'filter', filter: 'trash' })
+    expect(result).toHaveLength(2)
+    expect(result.every((e) => e.trashed)).toBe(true)
+  })
+
+  it('archived filter excludes trashed entries', () => {
+    const archivedAndTrashed = [
+      ...mockEntries,
+      { ...mockEntries[0], path: '/archived.md', archived: true, trashed: false, trashedAt: null, title: 'Archived Note' },
+      trashedEntry,
+    ]
+    const result = filterEntries(archivedAndTrashed, { kind: 'filter', filter: 'archived' })
+    expect(result.find((e) => e.title === 'Archived Note')).toBeDefined()
+    expect(result.find((e) => e.title === 'Old Draft Notes')).toBeUndefined()
+  })
+
+  it('topic filter excludes trashed entries', () => {
+    const topicEntry: VaultEntry = { ...mockEntries[4] } // Software Development topic
+    const trashedWithTopic: VaultEntry = {
+      ...trashedEntry,
+      relatedTo: ['[[topic/software-development]]'],
+    }
+    const all = [...mockEntries, trashedWithTopic]
+    const result = filterEntries(all, { kind: 'topic', entry: topicEntry })
+    expect(result.find((e) => e.title === 'Old Draft Notes')).toBeUndefined()
+    // Normal entry with that topic should still appear
+    expect(result.find((e) => e.title === 'Build Laputa App')).toBeDefined()
+  })
+})
+
+describe('NoteList — trash view', () => {
+  const trashSelection: SidebarSelection = { kind: 'filter', filter: 'trash' }
+
+  it('shows "Trash" header when trash filter is active', () => {
+    render(<NoteList entries={entriesWithTrashed} selection={trashSelection} selectedNote={null} onSelectNote={noopSelect} allContent={{}} onCreateNote={vi.fn()} />)
+    expect(screen.getByText('Trash')).toBeInTheDocument()
+  })
+
+  it('shows only trashed entries in trash view', () => {
+    render(<NoteList entries={entriesWithTrashed} selection={trashSelection} selectedNote={null} onSelectNote={noopSelect} allContent={{}} onCreateNote={vi.fn()} />)
+    expect(screen.getByText('Old Draft Notes')).toBeInTheDocument()
+    expect(screen.getByText('Deprecated API Notes')).toBeInTheDocument()
+    expect(screen.queryByText('Build Laputa App')).not.toBeInTheDocument()
+  })
+
+  it('shows TRASHED badge on trashed entries', () => {
+    render(<NoteList entries={entriesWithTrashed} selection={trashSelection} selectedNote={null} onSelectNote={noopSelect} allContent={{}} onCreateNote={vi.fn()} />)
+    const badges = screen.getAllByText('TRASHED')
+    expect(badges.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('shows 30-day warning banner when expired notes exist', () => {
+    render(<NoteList entries={entriesWithTrashed} selection={trashSelection} selectedNote={null} onSelectNote={noopSelect} allContent={{}} onCreateNote={vi.fn()} />)
+    expect(screen.getByText('Notes in trash for 30+ days will be permanently deleted')).toBeInTheDocument()
+    expect(screen.getByText(/1 note is past the 30-day retention period/)).toBeInTheDocument()
+  })
+
+  it('shows "Trash is empty" when no trashed entries', () => {
+    render(<NoteList entries={mockEntries} selection={trashSelection} selectedNote={null} onSelectNote={noopSelect} allContent={{}} onCreateNote={vi.fn()} />)
+    expect(screen.getByText('Trash is empty')).toBeInTheDocument()
   })
 })

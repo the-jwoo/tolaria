@@ -45,6 +45,8 @@ const mockEntry: VaultEntry = {
   owner: 'Luca',
   cadence: null,
   archived: false,
+  trashed: false,
+  trashedAt: null,
   modifiedAt: 1700000000,
   createdAt: null,
   fileSize: 1024,
