@@ -4,7 +4,7 @@ import type { VaultEntry } from '../types'
 interface EntryActionsConfig {
   entries: VaultEntry[]
   updateEntry: (path: string, updates: Partial<VaultEntry>) => void
-  handleUpdateFrontmatter: (path: string, key: string, value: unknown) => Promise<void>
+  handleUpdateFrontmatter: (path: string, key: string, value: string | number | boolean | string[]) => Promise<void>
   handleDeleteProperty: (path: string, key: string) => Promise<void>
   setToastMessage: (msg: string | null) => void
 }

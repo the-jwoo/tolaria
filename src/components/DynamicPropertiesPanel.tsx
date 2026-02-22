@@ -139,7 +139,7 @@ function AddPropertyForm({ onAdd, onCancel }: { onAdd: (key: string, value: stri
   )
 }
 
-function TypeRow({ isA, onNavigate }: { isA?: string; onNavigate?: (target: string) => void }) {
+function TypeRow({ isA, onNavigate }: { isA?: string | null; onNavigate?: (target: string) => void }) {
   if (!isA) return null
   return (
     <div className="flex items-center justify-between">

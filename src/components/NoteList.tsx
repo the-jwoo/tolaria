@@ -1,6 +1,5 @@
 import { useState, useMemo, useCallback, memo } from 'react'
 import type { VaultEntry, SidebarSelection, ModifiedFile } from '../types'
-import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import {
   MagnifyingGlass, Plus, CaretDown, CaretRight, Warning,
@@ -254,7 +253,7 @@ function NoteListInner({ entries, selection, selectedNote, allContent, modifiedF
       )}
 
       <div className="flex-1 overflow-hidden" style={{ minHeight: 0 }}>
-        {isEntityView ? (
+        {isEntityView && selection.kind === 'entity' ? (
           <EntityView entity={selection.entry} groups={searchedGroups} query={query} collapsedGroups={collapsedGroups} sortPrefs={sortPrefs} onToggleGroup={toggleGroup} onSortChange={handleSortChange} renderItem={renderItem} typeEntryMap={typeEntryMap} onSelectNote={onSelectNote} />
         ) : (
           <ListView typeDocument={typeDocument} isTrashView={isTrashView} expiredTrashCount={expiredTrashCount} searched={searched} query={query} renderItem={renderItem} typeEntryMap={typeEntryMap} onSelectNote={onSelectNote} />

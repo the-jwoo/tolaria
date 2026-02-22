@@ -133,7 +133,7 @@ function buildCustomizeArgs(typeEntry: VaultEntry, prop: 'icon' | 'color', value
 
 function SortableSection({ group, sectionProps }: {
   group: SectionGroup
-  sectionProps: Omit<SectionContentProps, 'group' | 'items' | 'isCollapsed' | 'dragHandleProps'>
+  sectionProps: Omit<SectionContentProps, 'group' | 'items' | 'isCollapsed' | 'dragHandleProps' | 'onToggle'>
     & { entries: VaultEntry[]; collapsed: Record<string, boolean>; onToggle: (type: string) => void }
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: group.type })
