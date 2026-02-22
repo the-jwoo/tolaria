@@ -118,9 +118,9 @@ fn extract_title(content: &str, filename: &str) -> String {
 /// Extract a snippet: first ~160 chars of content after frontmatter/title, stripped of markdown.
 fn extract_snippet(content: &str) -> String {
     // Remove frontmatter
-    let without_fm = if content.starts_with("---") {
-        if let Some(end) = content[3..].find("---") {
-            content[3 + end + 3..].trim_start()
+    let without_fm = if let Some(rest) = content.strip_prefix("---") {
+        if let Some(end) = rest.find("---") {
+            rest[end + 3..].trim_start()
         } else {
             content
         }
@@ -148,7 +148,12 @@ fn extract_snippet(content: &str) -> String {
 
     let stripped = strip_markdown_chars(&clean);
     if stripped.len() > 160 {
-        format!("{}...", &stripped[..stripped.floor_char_boundary(160)])
+        // Find last valid char boundary at or before 160 (floor_char_boundary requires Rust 1.91)
+        let mut idx = 160;
+        while idx > 0 && !stripped.is_char_boundary(idx) {
+            idx -= 1;
+        }
+        format!("{}...", &stripped[..idx])
     } else {
         stripped
     }

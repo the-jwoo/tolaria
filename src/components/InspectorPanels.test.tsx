@@ -1,0 +1,276 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
+import { DynamicRelationshipsPanel, BacklinksPanel, GitHistoryPanel } from './InspectorPanels'
+import type { VaultEntry, GitCommit } from '../types'
+
+const makeEntry = (overrides: Partial<VaultEntry> = {}): VaultEntry => ({
+  path: '/vault/note/test.md',
+  filename: 'test.md',
+  title: 'Test Note',
+  isA: 'Note',
+  aliases: [],
+  belongsTo: [],
+  relatedTo: [],
+  status: 'Active',
+  owner: null,
+  cadence: null,
+  archived: false,
+  trashed: false,
+  trashedAt: null,
+  modifiedAt: 1700000000,
+  createdAt: 1700000000,
+  fileSize: 100,
+  snippet: '',
+  relationships: {},
+  icon: null,
+  color: null,
+  order: null,
+  ...overrides,
+})
+
+describe('DynamicRelationshipsPanel', () => {
+  const onNavigate = vi.fn()
+  const onAddProperty = vi.fn()
+  const entries = [
+    makeEntry({ path: '/vault/project/my-project.md', filename: 'my-project.md', title: 'My Project', isA: 'Project' }),
+    makeEntry({ path: '/vault/topic/ai.md', filename: 'ai.md', title: 'AI', isA: 'Topic' }),
+  ]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows "No relationships" when frontmatter has no relations', () => {
+    render(
+      <DynamicRelationshipsPanel
+        frontmatter={{ Status: 'Active', title: 'Test' }}
+        entries={entries}
+        onNavigate={onNavigate}
+      />
+    )
+    expect(screen.getByText('No relationships')).toBeInTheDocument()
+  })
+
+  it('renders relationship groups with wikilinks', () => {
+    render(
+      <DynamicRelationshipsPanel
+        frontmatter={{
+          'Belongs to': ['[[project/my-project]]'],
+          'Related to': ['[[topic/ai]]'],
+        }}
+        entries={entries}
+        onNavigate={onNavigate}
+      />
+    )
+    expect(screen.getByText('Belongs to')).toBeInTheDocument()
+    expect(screen.getByText('Related to')).toBeInTheDocument()
+  })
+
+  it('navigates when clicking a relationship link', () => {
+    render(
+      <DynamicRelationshipsPanel
+        frontmatter={{ 'Belongs to': ['[[project/my-project]]'] }}
+        entries={entries}
+        onNavigate={onNavigate}
+      />
+    )
+    // Click the rendered link
+    const link = screen.getByText('My Project')
+    fireEvent.click(link)
+    expect(onNavigate).toHaveBeenCalledWith('project/my-project')
+  })
+
+  it('renders single string wikilink value', () => {
+    render(
+      <DynamicRelationshipsPanel
+        frontmatter={{ Owner: '[[person/luca]]' }}
+        entries={[makeEntry({ path: '/vault/person/luca.md', filename: 'luca.md', title: 'Luca', isA: 'Person' })]  }
+        onNavigate={onNavigate}
+      />
+    )
+    expect(screen.getByText('Owner')).toBeInTheDocument()
+    expect(screen.getByText('Luca')).toBeInTheDocument()
+  })
+
+  it('renders + Link existing button when onAddProperty provided', () => {
+    render(
+      <DynamicRelationshipsPanel
+        frontmatter={{}}
+        entries={entries}
+        onNavigate={onNavigate}
+        onAddProperty={onAddProperty}
+      />
+    )
+    expect(screen.getByText('+ Link existing')).toBeInTheDocument()
+  })
+
+  it('opens add relationship form when button clicked', () => {
+    render(
+      <DynamicRelationshipsPanel
+        frontmatter={{}}
+        entries={entries}
+        onNavigate={onNavigate}
+        onAddProperty={onAddProperty}
+      />
+    )
+    fireEvent.click(screen.getByText('+ Link existing'))
+    expect(screen.getByPlaceholderText('Relationship name')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Note title')).toBeInTheDocument()
+  })
+
+  it('adds relationship via form', () => {
+    render(
+      <DynamicRelationshipsPanel
+        frontmatter={{}}
+        entries={entries}
+        onNavigate={onNavigate}
+        onAddProperty={onAddProperty}
+      />
+    )
+    fireEvent.click(screen.getByText('+ Link existing'))
+    fireEvent.change(screen.getByPlaceholderText('Relationship name'), { target: { value: 'Related to' } })
+    fireEvent.change(screen.getByPlaceholderText('Note title'), { target: { value: 'AI' } })
+    fireEvent.click(screen.getByText('Add'))
+    expect(onAddProperty).toHaveBeenCalledWith('Related to', '[[AI]]')
+  })
+
+  it('cancels add relationship form', () => {
+    render(
+      <DynamicRelationshipsPanel
+        frontmatter={{}}
+        entries={entries}
+        onNavigate={onNavigate}
+        onAddProperty={onAddProperty}
+      />
+    )
+    fireEvent.click(screen.getByText('+ Link existing'))
+    fireEvent.click(screen.getByText('Cancel'))
+    expect(screen.getByText('+ Link existing')).toBeInTheDocument()
+  })
+
+  it('dims archived entries', () => {
+    const archivedEntry = makeEntry({
+      path: '/vault/project/old.md', filename: 'old.md', title: 'Old Project', isA: 'Project', archived: true,
+    })
+    render(
+      <DynamicRelationshipsPanel
+        frontmatter={{ 'Belongs to': ['[[project/old]]'] }}
+        entries={[archivedEntry]}
+        onNavigate={onNavigate}
+      />
+    )
+    // The button title should indicate "Archived" status
+    expect(screen.getByTitle('Archived')).toBeInTheDocument()
+  })
+
+  it('shows trashed indicator for trashed entries', () => {
+    const trashedEntry = makeEntry({
+      path: '/vault/project/trash.md', filename: 'trash.md', title: 'Trash Project', isA: 'Project', trashed: true,
+    })
+    render(
+      <DynamicRelationshipsPanel
+        frontmatter={{ 'Belongs to': ['[[project/trash]]'] }}
+        entries={[trashedEntry]}
+        onNavigate={onNavigate}
+      />
+    )
+    expect(screen.getByTitle('Trashed')).toBeInTheDocument()
+  })
+
+  it('handles aliased wikilinks [[path|Display]]', () => {
+    render(
+      <DynamicRelationshipsPanel
+        frontmatter={{ 'Belongs to': ['[[project/my-project|My Cool Project]]'] }}
+        entries={entries}
+        onNavigate={onNavigate}
+      />
+    )
+    expect(screen.getByText('My Cool Project')).toBeInTheDocument()
+  })
+})
+
+describe('BacklinksPanel', () => {
+  const onNavigate = vi.fn()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows "No backlinks" when empty', () => {
+    render(<BacklinksPanel backlinks={[]} onNavigate={onNavigate} />)
+    expect(screen.getByText('No backlinks')).toBeInTheDocument()
+  })
+
+  it('renders backlink entries', () => {
+    const backlinks = [
+      makeEntry({ title: 'Referencing Note', isA: 'Note' }),
+      makeEntry({ title: 'Another Note', isA: 'Project', path: '/vault/project/another.md' }),
+    ]
+    render(<BacklinksPanel backlinks={backlinks} onNavigate={onNavigate} />)
+    expect(screen.getByText('Referencing Note')).toBeInTheDocument()
+    expect(screen.getByText('Another Note')).toBeInTheDocument()
+  })
+
+  it('navigates when clicking backlink', () => {
+    const backlinks = [makeEntry({ title: 'Reference' })]
+    render(<BacklinksPanel backlinks={backlinks} onNavigate={onNavigate} />)
+    fireEvent.click(screen.getByText('Reference'))
+    expect(onNavigate).toHaveBeenCalledWith('Reference')
+  })
+
+  it('shows count when backlinks exist', () => {
+    const backlinks = [makeEntry(), makeEntry({ path: '/vault/b.md', title: 'B' })]
+    render(<BacklinksPanel backlinks={backlinks} onNavigate={onNavigate} />)
+    expect(screen.getByText('2')).toBeInTheDocument()
+  })
+})
+
+describe('GitHistoryPanel', () => {
+  const onViewCommitDiff = vi.fn()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows "No revision history" when empty', () => {
+    render(<GitHistoryPanel commits={[]} />)
+    expect(screen.getByText('No revision history')).toBeInTheDocument()
+  })
+
+  it('renders commit entries', () => {
+    const commits: GitCommit[] = [
+      { hash: 'abc1234567890', shortHash: 'abc1234', message: 'Initial commit', author: 'luca', date: Math.floor(Date.now() / 1000) - 3600 },
+      { hash: 'def4567890123', shortHash: 'def4567', message: 'Fix bug', author: 'jane', date: Math.floor(Date.now() / 1000) - 86400 * 2 },
+    ]
+    render(<GitHistoryPanel commits={commits} onViewCommitDiff={onViewCommitDiff} />)
+    expect(screen.getByText('abc1234')).toBeInTheDocument()
+    expect(screen.getByText('def4567')).toBeInTheDocument()
+    expect(screen.getByText('Initial commit')).toBeInTheDocument()
+    expect(screen.getByText('Fix bug')).toBeInTheDocument()
+    expect(screen.getByText('luca')).toBeInTheDocument()
+    expect(screen.getByText('jane')).toBeInTheDocument()
+  })
+
+  it('calls onViewCommitDiff when clicking commit hash', () => {
+    const commits: GitCommit[] = [
+      { hash: 'abc1234567890', shortHash: 'abc1234', message: 'test', author: '', date: Math.floor(Date.now() / 1000) },
+    ]
+    render(<GitHistoryPanel commits={commits} onViewCommitDiff={onViewCommitDiff} />)
+    fireEvent.click(screen.getByText('abc1234'))
+    expect(onViewCommitDiff).toHaveBeenCalledWith('abc1234567890')
+  })
+
+  it('displays relative dates correctly', () => {
+    const now = Math.floor(Date.now() / 1000)
+    const commits: GitCommit[] = [
+      { hash: 'a', shortHash: 'a1', message: 'm1', author: '', date: now }, // today
+      { hash: 'b', shortHash: 'b1', message: 'm2', author: '', date: now - 86400 }, // yesterday
+      { hash: 'c', shortHash: 'c1', message: 'm3', author: '', date: now - 86400 * 10 }, // 10d ago
+      { hash: 'd', shortHash: 'd1', message: 'm4', author: '', date: now - 86400 * 45 }, // ~1.5mo ago
+    ]
+    render(<GitHistoryPanel commits={commits} />)
+    expect(screen.getByText('today')).toBeInTheDocument()
+    expect(screen.getByText('yesterday')).toBeInTheDocument()
+    expect(screen.getByText('10d ago')).toBeInTheDocument()
+  })
+})
