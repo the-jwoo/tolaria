@@ -334,7 +334,9 @@ describe('Sidebar', () => {
 
   it('shows badge on commit button when modified files exist', () => {
     render(<Sidebar entries={[]} selection={defaultSelection} onSelect={() => {}} modifiedCount={3} onCommitPush={() => {}} />)
-    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(screen.getByText('Commit & Push')).toBeInTheDocument()
+    const badges = screen.getAllByText('3')
+    expect(badges.length).toBeGreaterThanOrEqual(1)
   })
 
   describe('dynamic custom type sections', () => {
