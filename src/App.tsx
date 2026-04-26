@@ -34,6 +34,7 @@ import { useAiAgentPreferences } from './hooks/useAiAgentPreferences'
 import { useSettings } from './hooks/useSettings'
 import { useDocumentThemeMode } from './hooks/useDocumentThemeMode'
 import { useThemeMode } from './hooks/useThemeMode'
+import type { ThemeMode } from './lib/themeMode'
 import { useNoteActions } from './hooks/useNoteActions'
 import { planNewTypeCreation } from './hooks/useNoteCreation'
 import { useCommitFlow } from './hooks/useCommitFlow'
@@ -433,6 +434,9 @@ function App() {
     const theme_mode = documentThemeMode === 'dark' ? 'light' : 'dark'
     void saveSettings({ ...settings, theme_mode })
   }, [documentThemeMode, saveSettings, settings])
+  const handleSetThemeMode = useCallback((theme_mode: ThemeMode) => {
+    void saveSettings({ ...settings, theme_mode })
+  }, [saveSettings, settings])
   const handleSetUiLanguage = useCallback((uiLanguage: UiLanguagePreference) => {
     void saveSettings({ ...settings, ui_language: serializeUiLanguagePreference(uiLanguage) })
   }, [saveSettings, settings])
@@ -1420,6 +1424,7 @@ function App() {
     systemLocale,
     selectedUiLanguage,
     onSetUiLanguage: handleSetUiLanguage,
+    onSetThemeMode: settingsLoaded ? handleSetThemeMode : undefined,
     mcpStatus,
     onInstallMcp: openMcpSetupDialog,
     onOpenAiAgents: dialogs.openSettings,

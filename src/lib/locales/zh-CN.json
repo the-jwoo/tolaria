@@ -12,6 +12,8 @@
   "command.openLanguageSettings.keywords": "语言 区域 i18n 国际化 本地化 中文 english italian french german russian spanish portuguese japanese korean",
   "command.useSystemLanguage": "使用系统语言",
   "command.openH1Setting": "打开 H1 自动重命名设置",
+  "command.useLightMode": "使用浅色模式",
+  "command.useDarkMode": "使用深色模式",
   "command.contribute": "参与贡献",
   "command.checkUpdates": "检查更新",
   "command.group.navigation": "导航",

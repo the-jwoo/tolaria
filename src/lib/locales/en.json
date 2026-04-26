@@ -12,6 +12,8 @@
   "command.openLanguageSettings.keywords": "language locale i18n internationalization localization english italian french german russian spanish portuguese chinese japanese korean 中文",
   "command.useSystemLanguage": "Use System Language",
   "command.openH1Setting": "Open H1 Auto-Rename Setting",
+  "command.useLightMode": "Use Light Mode",
+  "command.useDarkMode": "Use Dark Mode",
   "command.contribute": "Contribute",
   "command.checkUpdates": "Check for Updates",
   "command.group.navigation": "Navigation",
